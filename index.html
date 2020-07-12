@@ -125,6 +125,10 @@
       var editableLayers = L.featureGroup();
       map.addLayer(editableLayers);
       var drawControl = new L.Control.Draw({
+        draw: {
+          polyline : false,
+          circle : false
+        },
         edit: {
           featureGroup: editableLayers,
         },
