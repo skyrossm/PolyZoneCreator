@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>PolyZone Creator</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css"
+      integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ=="
+      crossorigin=""
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/0.4.2/leaflet.draw.css"
+    />
+
+    <style>
+      html,
+      body,
+      #map1 {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        z-index: 1;
+        background: #143c6a;
+      }
+      .btn {
+        position: absolute;
+        z-index: 10;
+        border-radius: 3px;
+        padding: 5px 15px;
+        border-color: #202020;
+        background-color: #303030;
+        color: white;
+      }
+      .btn-clear {
+        top: 2px;
+        right: 2px;
+      }
+      .btn-debug {
+        top: 2px;
+        right: 140px;
+      }
+      .btn:hover {
+        cursor: pointer;
+      }
+      .btn:active {
+        background-color: #404040;
+      }
+      .leaflet-grid-label .lng {
+        margin-left: 8px;
+        -webkit-transform: rotate(90deg);
+        transform: rotate(90deg);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map1"></div>
+
+    <button class="btn btn-clear" onclick="clearLayer();">
+      Clear All Shapes
+    </button>
+
+    <button class="btn btn-debug" onclick="debug = !debug;this.style.backgroundColor = debug ? '#40aa40' : '#303030';">
+      Debug Grid
+    </button>
+
+    <script
+      src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"
+      integrity="sha512-gZwIG9x3wUXg2hdXF6+rVkLF/0Vi9U8D2Ntg4Ga5I5BZpVkVxlJWbSQtXPSiUTtC0TjtGOmxa1AJPuV0CPthew=="
+      crossorigin=""
+    ></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/0.4.2/leaflet.draw.js"></script>
+
+    <script>
+      //Map Options
+      var mapMinZoom = 0;
+      var mapMaxZoom = 7;
+      var mapMaxResolution = 0.25;
+      var mapMinResolution = Math.pow(2, mapMaxZoom) * mapMaxResolution;
+      var mapCenterLat = -5528.5;
+      var mapCenterLng = 3754.75;
+      var gtaOffset = 65.8;
+      var debug = false;
+
+      //Create a new (square) coordinate system
+      var crs = L.CRS.Simple;
+
+      crs.scale = function (zoom) {
+        return Math.pow(2, zoom) / mapMinResolution;
+      };
+      crs.zoom = function (scale) {
+        return Math.log(scale * mapMinResolution) / Math.LN2;
+      };
+
+      //Create GTA map tiles
+
+      var layer = L.tileLayer("tiles/{z}/{x}/{y}.png", {
+        minZoom: mapMinZoom,
+        maxZoom: mapMaxZoom,
+        attribution:
+          'Rendered with <a href="https://www.maptiler.com/desktop/">MapTiler Desktop</a> by <a href="https://github.com/RussianRonin">RussianRonin</a> | Created by <a href="https://github.com/skyrossm">Skyrossm</a>',
+        noWrap: true,
+        tms: false,
+      });
+
+      //Create the map object
+
+      var map = new L.Map("map1", {
+        maxZoom: mapMaxZoom,
+        minZoom: mapMinZoom,
+        layers: [layer],
+        crs: crs,
+      });
+
+      //Create Leaflet.Draw toolbar/layer
+
+      //Fix for broken Draw
+      L.Draw.Polyline.prototype._onTouch = L.Util.falseFn;
+
+      var editableLayers = L.featureGroup();
+      map.addLayer(editableLayers);
+      var drawControl = new L.Control.Draw({
+        edit: {
+          featureGroup: editableLayers,
+        },
+      });
+      map.addControl(drawControl);
+
+      //Convert latlng on the map to GTA coords
+      function latlngToGTA(latlng) {
+        var x = ((latlng.lng - mapCenterLng) / gtaOffset) * 100;
+        var y = ((latlng.lat - mapCenterLat) / gtaOffset) * 100;
+        return [x.toFixed(2), y.toFixed(2)];
+      }
+
+      //Convert GTA coords to latlng on the map
+      function gtaToLatLng(x, y) {
+        var lng = (x / 100) * gtaOffset + mapCenterLng;
+        var lat = (y / 100) * gtaOffset + mapCenterLat;
+        return L.latLng(lat, lng);
+      }
+
+      //Remove all shapes from Draw
+      function clearLayer() {
+        editableLayers.getLayers().forEach((layer) => {
+          editableLayers.removeLayer(layer);
+        });
+      }
+
+      //https://github.com/mkafrin/PolyZone/blob/master/server.lua
+      function parseShape(name, points) {
+        var printout = "--Name: " + name + " | " + new Date().toDateString();
+        printout += "\nPolyZone:Create({\n";
+        points.forEach((point, index) => {
+          var last = index < points.length - 1 ? "," : "";
+          printout +=
+            " vector2(" + point[0] + ", " + point[1] + ")" + last + "\n";
+        });
+        var debugText = debug ? "\n debugGrid=true," : "";
+        printout +=
+          '}, {\n name="' + name + '",' + debugText + '\n --minZ=0,\n --maxZ=800\n})\n\n';
+        return printout;
+      }
+
+      //On shape created
+      map.on(L.Draw.Event.CREATED, (e) => {
+        var type = e.layerType,
+          layer = e.layer;
+        //If it's a marker just show the GTA position
+        if (type === "marker") {
+          var position = latlngToGTA(layer.getLatLng());
+          layer.bindPopup(
+            "GTA Position: " + position + ", latlng: " + layer.getLatLng()
+          );
+        } else {
+          //Get the polyzone name
+          var name = prompt("Enter polyzone name:");
+          //Show polyzone code on popup
+          var gtapoints = [];
+          layer._latlngs[0].forEach((latlng) => {
+            gtapoints.push(latlngToGTA(latlng));
+          });
+
+          var content = parseShape(name, gtapoints);
+          //Show in console as well just in case
+          console.log(content);
+
+          //Bind the popup
+          layer.bindPopup(
+            "<code style='white-space:pre-wrap;'>" + content + "</code>",
+            { minWidth: 500 }
+          );
+        }
+
+        //Add shape to map
+        editableLayers.addLayer(layer);
+      });
+
+      map.on(L.Draw.Event.EDITED, (e) => {
+        var layers = e.layers;
+
+        layers.eachLayer(function (layer) {
+          if (layer instanceof L.Marker) {
+            var position = latlngToGTA(layer.getLatLng());
+            layer.bindPopup(
+              "GTA Position: " + position + ", latlng: " + layer.getLatLng()
+            );
+          } else {
+            //Get the polyzone name
+            //extracts from the previous popup, could use some love
+            var name = layer.getPopup().getContent().split(" |")[0].slice(44);
+            //Show polyzone code on popup
+            var gtapoints = [];
+            layer._latlngs[0].forEach((latlng) => {
+              gtapoints.push(latlngToGTA(latlng));
+            });
+            var content = parseShape(name, gtapoints);
+            //Bind the popup
+            layer.bindPopup(
+              "<code style='white-space:pre-wrap;'>" + content + "</code>",
+              { minWidth: 500 }
+            );
+          }
+        });
+      });
+
+      //Center the map
+      map.setView([mapCenterLat, mapCenterLng], 3);
+    </script>
+  </body>
+</html>
