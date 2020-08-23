@@ -68,11 +68,17 @@
       Clear All Shapes
     </button>
 
-    <button class="btn btn-debug" onclick="debug = !debug;this.style.backgroundColor = debug ? '#40aa40' : '#303030';">
+    <button
+      class="btn btn-debug"
+      onclick="debug = !debug;this.style.backgroundColor = debug ? '#40aa40' : '#303030';"
+    >
       Debug Grid
     </button>
-    
-    <button class="btn btn-overlay" onclick="overlay = !overlay;this.style.backgroundColor = overlay ? '#40aa40' : '#303030';setOverlay();">
+
+    <button
+      class="btn btn-overlay"
+      onclick="overlay = !overlay;this.style.backgroundColor = overlay ? '#40aa40' : '#303030';setOverlay();"
+    >
       Overlay Grid
     </button>
 
@@ -98,6 +104,139 @@
       var bottomLeft = [-8192, 0];
       var topRight = [0, 8192];
       var bounds = [bottomLeft, topRight];
+
+      L.Draw.Circle = L.Draw.SimpleShape.extend({
+        statics: {
+          TYPE: "circle",
+        },
+
+        options: {
+          shapeOptions: {
+            stroke: true,
+            color: "#3388ff",
+            weight: 4,
+            opacity: 0.5,
+            fill: true,
+            fillColor: null, //same as color by default
+            fillOpacity: 0.2,
+            clickable: true,
+          },
+          showRadius: true,
+          metric: true, // Whether to use the metric measurement system or imperial
+          feet: true, // When not metric, use feet instead of yards for display
+          nautic: false, // When not metric, not feet use nautic mile for display
+        },
+
+        // @method initialize(): void
+        initialize: function (map, options) {
+          // Save the type so super can fire, need to do this as cannot do this.TYPE :(
+          this.type = L.Draw.Circle.TYPE;
+
+          this._initialLabelText =
+            L.drawLocal.draw.handlers.circle.tooltip.start;
+
+          L.Draw.SimpleShape.prototype.initialize.call(this, map, options);
+        },
+
+        _drawShape: function (latlng) {
+          // Calculate the distance based on the version
+          let outerPos = latlngToGTA(latlng);
+          let innerPos = latlngToGTA(this._startLatLng);
+          var distance = Math.hypot(
+            innerPos[0] - outerPos[0],
+            innerPos[1] - outerPos[1]
+          );
+
+          if (!this._shape) {
+            this._shape = new L.Circle(
+              this._startLatLng,
+              distance,
+              this.options.shapeOptions
+            );
+            this._map.addLayer(this._shape);
+          } else {
+            this._shape.setRadius(distance);
+          }
+        },
+
+        _fireCreatedEvent: function () {
+          var circle = new L.Circle(
+            this._startLatLng,
+            this._shape.getRadius(),
+            this.options.shapeOptions
+          );
+          L.Draw.SimpleShape.prototype._fireCreatedEvent.call(this, circle);
+        },
+
+        _onMouseMove: function (e) {
+          var latlng = e.latlng,
+            showRadius = this.options.showRadius,
+            useMetric = this.options.metric,
+            radius;
+
+          this._tooltip.updatePosition(latlng);
+          if (this._isDrawing) {
+            this._drawShape(latlng);
+
+            // Get the new radius (rounded to 1 dp)
+            radius = this._shape.getRadius().toFixed(1);
+
+            var subtext = "";
+            if (showRadius) {
+              subtext =
+                L.drawLocal.draw.handlers.circle.radius +
+                ": " +
+                L.GeometryUtil.readableDistance(
+                  radius,
+                  useMetric,
+                  this.options.feet,
+                  this.options.nautic
+                );
+            }
+            this._tooltip.updateContent({
+              text: this._endLabelText,
+              subtext: subtext,
+            });
+          }
+        },
+      });
+
+      L.Edit.CircleMarker = L.Edit.Circle.extend({
+
+        _resize: function (latlng) {
+          var moveLatLng = this._moveMarker.getLatLng();
+
+          // Calculate the distance based on the version
+          let outerPos = latlngToGTA(latlng);
+          let innerPos = latlngToGTA(this._startLatLng);
+          var distance = Math.hypot(
+            innerPos[0] - outerPos[0],
+            innerPos[1] - outerPos[1]
+          );
+
+          if (this._map.editTooltip) {
+            this._map._editTooltip.updateContent({
+              text:
+                L.drawLocal.edit.handlers.edit.tooltip.subtext +
+                "<br />" +
+                L.drawLocal.edit.handlers.edit.tooltip.text,
+              subtext:
+                L.drawLocal.draw.handlers.circle.radius +
+                ": " +
+                L.GeometryUtil.readableDistance(
+                  distance,
+                  true,
+                  this.options.feet,
+                  this.options.nautic
+                ),
+            });
+          }
+
+          this._shape.setRadius(distance);
+
+          this._map.fire(L.Draw.Event.EDITRESIZE, { layer: this._shape });
+        },
+      });
 
       //Create a new (square) coordinate system
       var crs = L.CRS.Simple;
@@ -127,14 +266,16 @@
         maxZoom: mapMaxZoom,
         minZoom: mapMinZoom,
         layers: [layer],
-        crs: crs,        
+        crs: crs,
         center: [mapCenterLat, mapCenterLng],
         zoom: 3,
       });
-      
+
       //Shows GTA grid overlay on map
-      let bgimage = L.imageOverlay('https://i.imgur.com/MQr04nZ.jpg', bounds, {opacity: 0}).addTo(map);
-      function setOverlay(){
+      let bgimage = L.imageOverlay("https://i.imgur.com/MQr04nZ.jpg", bounds, {
+        opacity: 0,
+      }).addTo(map);
+      function setOverlay() {
         let imagelee = document.querySelector(".leaflet-image-layer");
         imagelee.style.opacity = overlay ? 0.5 : 0;
       }
@@ -148,8 +289,7 @@
       map.addLayer(editableLayers);
       var drawControl = new L.Control.Draw({
         draw: {
-          polyline : false,
-          circle : false
+          polyline: false,
         },
         edit: {
           featureGroup: editableLayers,
@@ -159,8 +299,8 @@
 
       //Convert latlng on the map to GTA coords
       function latlngToGTA(latlng) {
-        var x = ((latlng.lng - mapCenterLng) / gtaOffset);
-        var y = ((latlng.lat - mapCenterLat) / gtaOffset);
+        var x = (latlng.lng - mapCenterLng) / gtaOffset;
+        var y = (latlng.lat - mapCenterLat) / gtaOffset;
         return [x.toFixed(2), y.toFixed(2)];
       }
 
@@ -189,7 +329,27 @@
         });
         var debugText = debug ? "\n debugGrid=true," : "";
         printout +=
-          '}, {\n name="' + name + '",' + debugText + '\n --minZ=0,\n --maxZ=800\n})\n\n';
+          '}, {\n name="' +
+          name +
+          '",' +
+          debugText +
+          "\n --minZ=0,\n --maxZ=800\n})\n\n";
+        return printout;
+      }
+
+      //https://github.com/mkafrin/PolyZone/blob/master/server.lua
+      function parseCircle(name, center, radius) {
+        var printout = "--Name: " + name + " | " + new Date().toDateString();
+        printout +=
+          "\nCircleZone:Create(vector2(" +
+          center[0] +
+          ", " +
+          center[1] +
+          "), " +
+          radius +
+          ",";
+        var debugText = debug ? "\n debugPoly=true," : "";
+        printout += '{\n name="' + name + '",' + debugText + "\n})\n\n";
         return printout;
       }
 
@@ -197,11 +357,24 @@
       map.on(L.Draw.Event.CREATED, (e) => {
         var type = e.layerType,
           layer = e.layer;
+
         //If it's a marker just show the GTA position
         if (type === "marker") {
           var position = latlngToGTA(layer.getLatLng());
           layer.bindPopup(
             "GTA Position: " + position + ", latlng: " + layer.getLatLng()
+          );
+        } else if (type === "circle") {
+          var position = latlngToGTA(layer.getLatLng());
+
+          let content = parseCircle(
+            prompt("Enter circlezone name: "),
+            latlngToGTA(layer.getLatLng()),
+            (layer.getRadius() * 1.5).toFixed(2)
+          );
+          layer.bindPopup(
+            "<code style='white-space:pre-wrap;'>" + content + "</code>",
+            { minWidth: 500 }
           );
         } else {
           //Get the polyzone name
@@ -235,6 +408,19 @@
             var position = latlngToGTA(layer.getLatLng());
             layer.bindPopup(
               "GTA Position: " + position + ", latlng: " + layer.getLatLng()
+            );
+          } else if (layer instanceof L.Circle) {
+            var name = layer.getPopup().getContent().split(" |")[0].slice(44);
+
+            var position = latlngToGTA(layer.getLatLng());
+            let content = parseCircle(
+              name,
+              latlngToGTA(layer.getLatLng()),
+              (layer.getRadius() * 1.5).toFixed(2)
+            );
+            layer.bindPopup(
+              "<code style='white-space:pre-wrap;'>" + content + "</code>",
+              { minWidth: 500 }
             );
           } else {
             //Get the polyzone name
